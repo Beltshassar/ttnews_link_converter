@@ -8,6 +8,9 @@ services:
     resource: '../Classes/*'
     exclude: '../Classes/Domain/Dto/*'
 
-  # Register Imhlab\TtnewsLinkConverter\Command\ConvertLinksCommand here with a
-  # 'console.command' tag once it exists - see vendor/imhlab/film/Configuration/Services.yaml
-  # for the exact house pattern (command name, schedulable, description).
+  Imhlab\TtnewsLinkConverter\Command\ConvertLinksCommand:
+    tags:
+      - name: 'console.command'
+        command: 'imhlab:ttnews-link-converter:convert'
+        schedulable: false
+        description: 'Convert legacy tt_news RTE link tags in tx_news bodytext to TYPO3 record-link syntax (dry-run by default; pass --execute to write)'
