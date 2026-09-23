@@ -15,11 +15,21 @@ becomes
 
 ## Status
 
-Scaffolding only — the command and its supporting services are not yet
-implemented. See [`specs/project-plan.md`](specs/project-plan.md) for the full
-design (link patterns handled, id-resolution logic, dry-run/`--execute`
-behaviour, logging) and a ready-to-use kickoff prompt for starting
-implementation.
+Implemented, not yet installed into the main filmogtro.dk project or run
+against real data. See [`specs/project-plan.md`](specs/project-plan.md) for
+the full design and the Verification section covering how to safely roll
+this out (dry-run first, spot-check one row, then execute).
+
+## Usage
+
+```
+vendor/bin/typo3 imhlab:ttnews-link-converter:convert              # dry-run (default)
+vendor/bin/typo3 imhlab:ttnews-link-converter:convert --execute    # write changes
+```
+
+Options: `--limit=N` (cap candidate rows, default unlimited), `--log-file=PATH`
+(default `var/log/ttnews_link_converter-unresolved_links.log`),
+`--log-format=text|json` (default `text`).
 
 ## Development notes
 
