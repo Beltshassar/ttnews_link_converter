@@ -1,0 +1,28 @@
+{
+    "name": "imhlab/ttnews_link_converter",
+    "type": "typo3-cms-extension",
+    "description": "CLI command converting legacy tt_news RTE link tags in tx_news_domain_model_news.bodytext to TYPO3 13 record-link syntax. Developed with AI assistance (Claude Code).",
+    "authors": [
+        {
+            "name": "Daniel Alexander Damm",
+            "role": "Developer",
+            "email": "dad@imh.dk",
+            "homepage": "https://indremission.dk"
+        }
+    ],
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.2",
+        "typo3/cms-core": "^13.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "Imhlab\\TtnewsLinkConverter\\": "Classes"
+        }
+    },
+    "extra": {
+        "typo3/cms": {
+            "extension-key": "ttnews_link_converter"
+        }
+    }
+}
