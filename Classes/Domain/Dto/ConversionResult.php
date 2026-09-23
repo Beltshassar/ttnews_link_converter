@@ -11,9 +11,11 @@ final class ConversionResult
      * @param list<LinkIssue> $issues
      */
     public function __construct(
+        public readonly string $table,
         public readonly int $sourceUid,
-        public readonly string $originalBodytext,
-        public readonly string $newBodytext,
+        public readonly string $field,
+        public readonly string $originalValue,
+        public readonly string $newValue,
         public readonly array $converted,
         public readonly array $issues,
     ) {
@@ -21,6 +23,6 @@ final class ConversionResult
 
     public function hasChanges(): bool
     {
-        return $this->newBodytext !== $this->originalBodytext;
+        return $this->newValue !== $this->originalValue;
     }
 }

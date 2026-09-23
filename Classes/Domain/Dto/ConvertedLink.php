@@ -10,7 +10,9 @@ final class ConvertedLink
     public const PATTERN_RAW_ANCHOR = 'raw_anchor';
 
     public function __construct(
+        public readonly string $table,
         public readonly int $sourceUid,
+        public readonly string $field,
         public readonly int $oldUid,
         public readonly int $newUid,
         public readonly string $linkText,

@@ -11,42 +11,47 @@ use TYPO3\CMS\Core\Site\SiteFinder;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 /**
- * Isolated DataHandler write boundary. Kept separate from LinkConverterService so the
- * scan/transform logic stays free of DataHandler/CLI-bootstrap concerns.
+ * Isolated DataHandler write boundary, table-agnostic (any table registered as a scan
+ * target in LinkConverterService can be written back here). Kept separate from
+ * LinkConverterService so the scan/transform logic stays free of DataHandler/CLI-bootstrap
+ * concerns.
  */
-final class NewsRecordWriter
+final class RecordFieldWriter
 {
-    private const TABLE = 'tx_news_domain_model_news';
-
     public function __construct(
         private readonly SiteFinder $siteFinder,
     ) {
     }
 
     /**
-     * @param array<int, string> $uidToBodytext
+     * @param array<string, array<int, array<string, string>>> $tableUidFieldValues
+     *   table => uid => field => new value
      */
-    public function updateBodytext(array $uidToBodytext): BatchWriteResult
+    public function updateFields(array $tableUidFieldValues): BatchWriteResult
     {
-        if ($uidToBodytext === []) {
+        if ($tableUidFieldValues === []) {
             return new BatchWriteResult([], []);
         }
 
         $this->bootstrapCliRequestContext();
 
-        $data = [self::TABLE => []];
-        foreach ($uidToBodytext as $uid => $bodytext) {
-            $data[self::TABLE][$uid] = ['bodytext' => $bodytext];
+        $data = [];
+        $updatedRefs = [];
+        foreach ($tableUidFieldValues as $table => $uidFieldValues) {
+            foreach ($uidFieldValues as $uid => $fieldValues) {
+                $data[$table][$uid] = $fieldValues;
+                $updatedRefs[] = sprintf('%s:%d', $table, $uid);
+            }
         }
 
-        // One batched process_datamap() call for every changed row, not one per row -
-        // avoids re-running the bootstrap/reference-index maintenance per row for what
-        // can be well over a thousand rows in a single run.
+        // One batched process_datamap() call for every changed row across every table,
+        // not one per row - avoids re-running the bootstrap/reference-index maintenance
+        // per row for what can be well over a thousand rows in a single run.
         $dataHandler = GeneralUtility::makeInstance(DataHandler::class);
         $dataHandler->start($data, []);
         $dataHandler->process_datamap();
 
-        return new BatchWriteResult(array_keys($uidToBodytext), $dataHandler->errorLog);
+        return new BatchWriteResult($updatedRefs, $dataHandler->errorLog);
     }
 
     /**

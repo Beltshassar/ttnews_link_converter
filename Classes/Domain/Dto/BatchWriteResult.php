@@ -7,11 +7,11 @@ namespace Imhlab\TtnewsLinkConverter\Domain\Dto;
 final class BatchWriteResult
 {
     /**
-     * @param list<int> $updatedUids
+     * @param list<string> $updatedRefs "table:uid" references that were sent to DataHandler
      * @param list<string> $errors
      */
     public function __construct(
-        public readonly array $updatedUids,
+        public readonly array $updatedRefs,
         public readonly array $errors,
     ) {
     }

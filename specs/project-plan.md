@@ -10,9 +10,16 @@ filmogtro.dk's news content (`tx_news_domain_model_news`, ~2912 rows, `import_so
 
 These tags are inert in TYPO3 13/14 — they don't resolve to anything — and there is no existing tool to fix them. This extension provides a one-shot, re-runnable CLI command to rewrite these into modern TYPO3 record-link syntax so the links work again. It needs to be safe (dry-run by default), auditable (log of anything it can't resolve), and minimal (single-purpose CLI tool, not a general framework).
 
+## Update — 2026-09-23: multi-table scanning + TYPO3 14 support
+
+Shipped, installed via Composer into the main project, and confirmed working against filmogtro.dk's real `tx_news` data. Two follow-up changes were made after that initial rollout:
+
+1. **Multi-table/field scanning.** The current site has no notable `tt_content` content, but an upcoming project does, so scanning was generalized from a single hardcoded table (`tx_news_domain_model_news.bodytext`) to a configurable list of `(table, fields[])` targets — see `LinkConverterService::SCAN_TARGETS`. `tt_content.bodytext` and `tt_content.teaser` (both standard core fields, confirmed present in this project's schema) were added alongside the original `tx_news_domain_model_news.bodytext` target. The write boundary (formerly `NewsRecordWriter`, renamed `RecordFieldWriter` since it's no longer news-only) was made table-agnostic to match — it accepts `table => uid => field => value` and batches everything into one `DataHandler` call regardless of source table. `ConversionResult`/`ConvertedLink`/`LinkIssue` all gained `table`/`field` properties so the summary table and issue log stay traceable across sources. The SQL candidate-prefilter was also widened to include the filmid-redirect marker (`filmogtro.dk/index.php?site=anmeldelserread`), fixing a latent gap where a row containing *only* a filmid-redirect link (no `record:tt_news:` reference) would never have been selected for scanning, and so its issue would silently never reach the log.
+2. **TYPO3 14 compatibility.** The parent project plans to upgrade to TYPO3 14 before launch and wants to keep this extension across that upgrade. Research against the official TYPO3 14 changelog/upgrade docs confirmed every core API this extension uses (`DataHandler`, `ConnectionPool`/QueryBuilder, `SiteFinder`, `Bootstrap::initializeBackendAuthentication()`, the `console.command` Services.yaml tag, `Environment::getVarPath()`) is unchanged between 13.4 and 14 — no code changes were needed. `composer.json`/`ext_emconf.php` now declare `typo3/cms-core: ^13.4 || ^14.0`. This has not been run against an actual TYPO3 14 installation (none exists in this project yet) — re-verify once the parent project's upgrade is underway.
+
 ## Research findings that drive the design
 
-- **`bodytext` is the only field affected.** `teaser` was confirmed empty of any legacy link markup (0 of 2912 rows) — no need to scan it, though the parser itself is field-agnostic if ever needed.
+- **On `tx_news_domain_model_news`, `bodytext` is the only field affected.** `teaser` was confirmed empty of any legacy link markup (0 of 2912 rows) — not scanned on this table. (`tt_content.teaser` is scanned, per the 2026-09-23 update above — a different table/column, confirmed present in this project's schema, added for an upcoming project's needs.) The parser itself is field-agnostic.
 - **The number inside the old tag is the *old* tt_news uid, not the new one.** `tx_news_domain_model_news.import_id` (varchar) stores that old uid as a string. Resolution requires:
   ```sql
   SELECT uid FROM tx_news_domain_model_news
@@ -45,7 +52,7 @@ These tags are inert in TYPO3 13/14 — they don't resolve to anything — and t
    ```
    Branch assumed `main` (GitHub's current default for new repos, unlike Bitbucket's `master`-based siblings) — confirm against the actual default branch of the new repo before requiring it. This is still the one step that touches a file outside `vendor/imhlab/`, which project rules normally forbid without explicit sign-off — flagged here as that sign-off, and it should be called out again at implementation time. The local extension directory (`vendor/imhlab/ttnews_link_converter`) needs its own git init/remote pointing at this GitHub URL and an initial push before `composer update` can resolve it.
 2. **Legacy `filmid` redirect links**: out of scope. Detected and logged as an "unhandled pattern" for visibility, not converted.
-3. **DB writes go through `DataHandler::process_datamap()`**, not a raw SQL `UPDATE` — matches the precedent in `vendor/imhlab/film/Classes/Command/GenerateNewsListPerCategoryCommand.php`, and gives proper backend history/undo plus reference-index maintenance. This does mean the write path depends on TYPO3's RTE-transform-on-persist pipeline (`RteHtmlParser::transformTextForPersistence()`), which round-trips every `<a href>` through `LinkService`/sanitizer on save — expected to be a no-op for our already-canonical hrefs, but worth a one-row `--execute --limit=1` spot check before running the full batch (see Verification). Unlike the sibling extension's command (which hardcodes the DDEV hostname into `$_SERVER['HTTP_HOST']` for this same DataHandler-on-CLI bootstrap), this extension must work regardless of environment/hostname — so the host is resolved dynamically from the site configuration instead of hardcoded (see `NewsRecordWriter` below).
+3. **DB writes go through `DataHandler::process_datamap()`**, not a raw SQL `UPDATE` — matches the precedent in `vendor/imhlab/film/Classes/Command/GenerateNewsListPerCategoryCommand.php`, and gives proper backend history/undo plus reference-index maintenance. This does mean the write path depends on TYPO3's RTE-transform-on-persist pipeline (`RteHtmlParser::transformTextForPersistence()`), which round-trips every `<a href>` through `LinkService`/sanitizer on save — expected to be a no-op for our already-canonical hrefs, but worth a one-row `--execute --limit=1` spot check before running the full batch (see Verification). Unlike the sibling extension's command (which hardcodes the DDEV hostname into `$_SERVER['HTTP_HOST']` for this same DataHandler-on-CLI bootstrap), this extension must work regardless of environment/hostname — so the host is resolved dynamically from the site configuration instead of hardcoded (see `RecordFieldWriter` below).
 4. **Dry-run by default.** No flags = preview only, nothing written. `--execute` is required to actually write changes.
 
 ## Extension scaffold
@@ -63,7 +70,7 @@ vendor/imhlab/ttnews_link_converter/
 │   │   ├── LegacyLinkParser.php           # pure regex scan+replace, no DB/TYPO3 deps
 │   │   ├── NewsImportIdResolver.php       # old uid -> new uid, via import_id lookup (cached)
 │   │   ├── LinkConverterService.php       # orchestrates parser+resolver, no writes
-│   │   ├── NewsRecordWriter.php           # isolated DataHandler write boundary
+│   │   ├── RecordFieldWriter.php           # isolated DataHandler write boundary
 │   │   └── LinkConversionLogWriter.php    # writes the unresolved/unhandled log
 │   └── Domain/Dto/
 │       ├── ConversionResult.php
@@ -94,7 +101,7 @@ No `ext_localconf.php`, no `ext_tables.sql`, no TCA, no `Tests/` scaffolding —
     "license": "GPL-2.0-or-later",
     "require": {
         "php": ">=8.2",
-        "typo3/cms-core": "^13.4"
+        "typo3/cms-core": "^13.4 || ^14.0"
     },
     "autoload": {
         "psr-4": { "Imhlab\\TtnewsLinkConverter\\": "Classes" }
@@ -105,7 +112,7 @@ No `ext_localconf.php`, no `ext_tables.sql`, no TCA, no `Tests/` scaffolding —
 }
 ```
 
-- `typo3/cms-core` constrained to `^13.4` only for now, not `^13.4 || ^14.0` — the root project itself is TYPO3 13.4-only today, so a 14 claim would be untested. The APIs used (`DataHandler`, `ConnectionPool`, `console.command` DI tag) are stable core APIs and likely fine on 14; widen the constraint once actually verified there.
+- `typo3/cms-core` constrained to `^13.4 || ^14.0` — widened per the 2026-09-23 update above once TYPO3 14 was confirmed released and every API this extension uses was verified unchanged against the official 13→14 changelog/upgrade docs.
 - `georgringer/news` is **not** added as a hard Composer dependency — this tool never calls GeorgRinger PHP classes, only the `tx_news_domain_model_news` table by name via `ConnectionPool`. The real coupling (table shape, and the `tx_news` record-link identifier being active) is documented in the README instead, keeping the tool decoupled per "simple, single-purpose."
 - Vendor/author metadata: package vendor namespace stays `imhlab/` (matches Composer/Bitbucket convention of siblings); "IMHlab" and "Daniel Alexander Damm" are represented in `authors` and should also appear in `ext_emconf.php`'s `author`/`author_company`.
 
@@ -166,9 +173,9 @@ Caches results in-memory (same target news item is linked from many bodytexts). 
 
 Returns a `ConversionResult` per row (`sourceUid`, `originalBodytext`, `newBodytext`, converted links, issues). This service is pure scan+transform — safe to call unconditionally in both dry-run and execute mode; only the Command layer decides whether to persist the result.
 
-### `NewsRecordWriter` — isolated DataHandler write boundary
+### `RecordFieldWriter` — isolated DataHandler write boundary
 
-DataHandler triggers hooks that build a PSR-7 `ServerRequest` from `$_SERVER`, which isn't populated on CLI. The sibling extension's command hardcodes `$_SERVER['HTTP_HOST']` to the local DDEV hostname to work around this — that only works in one environment. This extension instead resolves the host **dynamically from the site configuration**, via `SiteFinder`, so it works unmodified on DDEV, staging, or production:
+DataHandler triggers hooks that build a PSR-7 `ServerRequest` from `$_SERVER`, which isn't populated on CLI. The sibling extension's command hardcodes `$_SERVER['HTTP_HOST']` to the local DDEV hostname to work around this — that only works in one environment. This extension instead resolves the host **dynamically from the site configuration**, via `SiteFinder`, so it works unmodified on DDEV, staging, or production. (This class was originally named `NewsRecordWriter` with a `bodytext`-only, single-table `updateBodytext(array $uidToBodytext)` method, shown below for the CLI-bootstrap illustration; the 2026-09-23 update generalized it to `RecordFieldWriter::updateFields(array $tableUidFieldValues)` accepting `table => uid => field => value` across every scanned table — the bootstrap logic itself is unchanged.)
 
 ```php
 public function __construct(
@@ -223,7 +230,7 @@ One batched `process_datamap()` call for all changed rows in a run, not one per 
 
 Options: `--execute` (VALUE_NONE, default off = dry-run), `--limit=N` (default 0 = unlimited), `--log-file=PATH`, `--log-format=text|json` (default text).
 
-Flow: call `convertAll()` unconditionally (never writes) → filter to rows with actual changes → print a `SymfonyStyle` summary table (rows scanned, links converted, issues found) → if `--execute` and there are changes, call `NewsRecordWriter::updateBodytext()` and fail the command on any `errorLog` entries → always write the issue log → print final summary (dry-run vs executed, counts, log path).
+Flow: call `convertAll()` unconditionally (never writes) → filter to rows/fields with actual changes → print a `SymfonyStyle` summary table (rows scanned, links converted, issues found) → if `--execute` and there are changes, group them by `table => uid => field => value` and call `RecordFieldWriter::updateFields()`, failing the command on any `errorLog` entries → always write the issue log → print final summary (dry-run vs executed, counts, log path).
 
 ## Verification
 
@@ -291,7 +298,7 @@ external link that isn't one of the above.
 Architecture: Classes/Service/LegacyLinkParser.php (pure regex, no DB),
 Classes/Service/NewsImportIdResolver.php (cached DB lookup),
 Classes/Service/LinkConverterService.php (orchestrates scan+transform, no
-writes), Classes/Service/NewsRecordWriter.php (isolated DataHandler write
+writes), Classes/Service/RecordFieldWriter.php (isolated DataHandler write
 boundary — DataHandler on CLI needs $_SERVER['HTTP_HOST']/['HTTPS']/['REQUEST_URI']
 populated before Bootstrap::initializeBackendAuthentication(); resolve these
 dynamically via SiteFinder->getAllSites() as described above, never hardcode

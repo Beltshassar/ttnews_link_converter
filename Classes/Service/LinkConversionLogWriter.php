@@ -46,9 +46,11 @@ final class LinkConversionLogWriter
         $lines = [];
         foreach ($issues as $issue) {
             $lines[] = sprintf(
-                "%s | source_uid=%d | old_uid=%s | type=%s\n  | message=\"%s\"\n  | snippet=%s",
+                "%s | %s:%d.%s | old_uid=%s | type=%s\n  | message=\"%s\"\n  | snippet=%s",
                 $generatedAt,
+                $issue->table,
                 $issue->sourceUid,
+                $issue->field,
                 $issue->oldUid === null ? 'n/a' : (string)$issue->oldUid,
                 $issue->type,
                 $issue->message,
@@ -69,7 +71,9 @@ final class LinkConversionLogWriter
             'issueCount' => count($issues),
             'issues' => array_map(
                 static fn (LinkIssue $issue): array => [
+                    'table' => $issue->table,
                     'sourceUid' => $issue->sourceUid,
+                    'field' => $issue->field,
                     'oldUid' => $issue->oldUid,
                     'type' => $issue->type,
                     'message' => $issue->message,
